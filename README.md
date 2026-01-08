@@ -1,0 +1,2 @@
+# KQL
+Working KQL Created
