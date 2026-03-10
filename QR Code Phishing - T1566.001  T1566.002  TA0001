@@ -1,0 +1,43 @@
+//GitRepo owner - tatey66 
+//Mitre -T1566.001 / T1566.002 / TA0001
+//QR Code Phishing
+
+let selection_subject    = dynamic(["2FA","Action","payroll","MFA","subscribe"]);
+let filter_domain        = dynamic(["microsoft.com","sharepointonline.com"]);
+let lookback             = 30d;
+let prevalence_window    = 14d;
+let prevalence_threshold = 5;
+// Step 1 — Known senders
+let PrevalentSenders =
+    EmailEvents
+    | where Timestamp between (ago(prevalence_window)..(now()-24h))
+    | where isnotempty(SenderFromAddress)
+    | summarize TotalEmailCount = count() by SenderFromAddress
+    | where TotalEmailCount > prevalence_threshold
+    | distinct SenderFromAddress;
+// Step 2 — Emails with confirmed QR code URLs
+let QRCodeEmails =
+    EmailUrlInfo
+    | where Timestamp > ago(lookback)
+    | where UrlLocation == "QRCode"
+    | project NetworkMessageId, Url, UrlDomain;
+// Step 3 — Main pipeline
+EmailEvents
+| where Timestamp > ago(lookback)
+| where EmailDirection == 'Inbound'
+| where DeliveryAction == 'Delivered'
+| where SenderMailFromDomain !has "wa.edu.au"
+| where not(SenderMailFromDomain has_any (filter_domain))
+| where SenderFromAddress !in (PrevalentSenders)
+| extend username_    = tostring(split(RecipientEmailAddress, "@")[0])
+| extend domain_      = tostring(split(RecipientEmailAddress, "@")[1])
+| extend domain_name_ = tostring(split(domain_, ".")[0])
+| where Subject contains username_
+     or Subject contains domain_
+     or Subject contains domain_name_
+     or Subject has_any (selection_subject)
+| join kind=inner QRCodeEmails on NetworkMessageId
+| summarize arg_min(Timestamp, *) by NetworkMessageId, RecipientEmailAddress, TenantId
+
+//Reference:
+//xxx
